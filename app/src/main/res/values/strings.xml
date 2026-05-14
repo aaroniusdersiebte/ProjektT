@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ProjektT</string>
+    <string name="widget_description">XP Level und Aufgaben auf dem Homescreen</string>
+    <string name="widget_name">ProjektT Tasks</string>
+</resources>
