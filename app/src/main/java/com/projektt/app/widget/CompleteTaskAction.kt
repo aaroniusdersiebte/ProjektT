@@ -22,6 +22,14 @@ class CompleteTaskAction : ActionCallback {
         val taskId = parameters[taskIdKey] ?: return
         val taskListId = parameters[taskListIdKey] ?: return
 
+        // 1. SOFORT: Task visuell entfernen (vor jeder DB-Arbeit)
+        ProjektTWidget.removeFromCache(taskId)
+        updateAppWidgetState(context, glanceId) { prefs ->
+            val current = prefs[ProjektTWidget.HIDDEN_TASKS_KEY] ?: emptySet()
+            prefs[ProjektTWidget.HIDDEN_TASKS_KEY] = current + taskId
+        }
+
+        // 2. XP berechnen und speichern
         val entryPoint = EntryPointAccessors.fromApplication(
             context.applicationContext,
             WidgetEntryPoint::class.java
@@ -30,7 +38,6 @@ class CompleteTaskAction : ActionCallback {
         val googleTasksService = entryPoint.googleTasksService()
         val taskSyncPrefs = entryPoint.taskSyncPrefs()
 
-        // 1. XP SOFORT berechnen und speichern (optimistisch)
         userProgressRepository.checkAndResetDailyStreak()
         val progress = userProgressRepository.getProgressOnce()
         val xpEarned = progress.calculateXpForTask()
@@ -41,30 +48,21 @@ class CompleteTaskAction : ActionCallback {
         userProgressRepository.updateProgress(updatedProgress)
         taskSyncPrefs.addWidgetCompletedTask(taskId, xpEarned)
 
-        // 2. Task aus In-Memory-Cache entfernen
-        ProjektTWidget.removeFromCache(taskId)
-
-        // 3. Task ausblenden + XP/Level in Glance-State → löst reaktives Re-Render sofort aus
-        // Kein update() nötig: updateAppWidgetState triggert Glance-Rerender ohne API-Call
+        // 3. XP/Level in Glance State aktualisieren
         updateAppWidgetState(context, glanceId) { prefs ->
-            val current = prefs[ProjektTWidget.HIDDEN_TASKS_KEY] ?: emptySet()
-            prefs[ProjektTWidget.HIDDEN_TASKS_KEY] = current + taskId
             prefs[ProjektTWidget.CURRENT_XP_KEY] = updatedProgress.currentXp
             prefs[ProjektTWidget.CURRENT_LEVEL_KEY] = updatedProgress.level
         }
 
-        // 4. API-Call im Hintergrund (kann dauern)
+        // 4. API-Call im Hintergrund
         if (!googleTasksService.isInitialized()) {
-            if (!googleTasksService.initializeForWidget()) {
-                return
-            }
+            if (!googleTasksService.initializeForWidget()) return
         }
 
         try {
             googleTasksService.completeTask(taskListId, taskId)
-
         } catch (e: Exception) {
-            // Rollback bei Fehler
+            // Rollback bei API-Fehler
             updateAppWidgetState(context, glanceId) { prefs ->
                 val current = prefs[ProjektTWidget.HIDDEN_TASKS_KEY] ?: emptySet()
                 prefs[ProjektTWidget.HIDDEN_TASKS_KEY] = current - taskId

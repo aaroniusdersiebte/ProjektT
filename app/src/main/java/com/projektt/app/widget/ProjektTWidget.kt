@@ -87,6 +87,7 @@ class ProjektTWidget : GlanceAppWidget() {
                 taskLists = updatedLists,
                 allTasks = current.allTasks + task
             )
+            cacheTimestamp = System.currentTimeMillis()
         }
 
         fun removeFromCache(taskId: String) {
@@ -98,6 +99,7 @@ class ProjektTWidget : GlanceAppWidget() {
                 },
                 overdueTasks = current.overdueTasks.filter { it.id != taskId }
             )
+            cacheTimestamp = System.currentTimeMillis()
         }
     }
 
@@ -153,9 +155,7 @@ class ProjektTWidget : GlanceAppWidget() {
                     context.applicationContext,
                     WidgetEntryPoint::class.java
                 )
-                val googleTasksService = entryPoint.googleTasksService()
                 val taskSyncPrefs = entryPoint.taskSyncPrefs()
-                val widgetSettingsRepo = entryPoint.widgetSettingsRepository()
 
                 // Cache-Invalidierung durch App-Signal prüfen
                 if (taskSyncPrefs.shouldInvalidateCache()) {
@@ -163,12 +163,18 @@ class ProjektTWidget : GlanceAppWidget() {
                     taskSyncPrefs.clearInvalidateFlag()
                 }
 
-                // Auth: initializeForWidget() ist der maßgebliche Check
+                // Fast-Path: gecachte WidgetData zurückgeben (vor Auth-Check)
+                getCachedWidgetData()?.let { cached ->
+                    return@withContext cached.copy(progress = progress)
+                }
+
+                // Slow-Path: Auth + vollständiger API-Fetch
+                val googleTasksService = entryPoint.googleTasksService()
+                val widgetSettingsRepo = entryPoint.widgetSettingsRepository()
+
                 if (!googleTasksService.isInitialized()) {
                     if (!googleTasksService.initializeForWidget()) {
-                        // getLastSignedInAccount() schlug fehl – prüfe ob das transient ist
                         return@withContext if (taskSyncPrefs.wasSignedIn()) {
-                            // Wahrscheinlich Token-Refresh → leere Anzeige statt Login-Screen
                             WidgetData(progress = progress, isSignedIn = true)
                         } else {
                             WidgetData(progress = progress, isSignedIn = false)
@@ -176,12 +182,6 @@ class ProjektTWidget : GlanceAppWidget() {
                     }
                 }
 
-                // Fast-Path: gecachte WidgetData zurückgeben (Fix für XP-Delay + Task-Flash)
-                getCachedWidgetData()?.let { cached ->
-                    return@withContext cached.copy(progress = progress)
-                }
-
-                // Slow-Path: vollständiger API-Fetch
                 val taskListsWithTasks = googleTasksService.getTaskListsWithTasks()
                 if (taskListsWithTasks.isEmpty()) {
                     val emptyData = WidgetData(progress = progress, isSignedIn = true)
@@ -284,25 +284,6 @@ private fun WidgetContent(
             )
 
             Spacer(modifier = GlanceModifier.defaultWeight())
-
-            Box(
-                modifier = GlanceModifier
-                    .size(if (isSmall) 24.dp else 28.dp)
-                    .background(surfaceColor)
-                    .clickable(actionRunCallback<RefreshAction>()),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "↻",
-                    style = TextStyle(
-                        color = ColorProvider(dimTextColor),
-                        fontSize = if (isSmall) 14.sp else 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                )
-            }
-
-            Spacer(modifier = GlanceModifier.width(4.dp))
 
             Box(
                 modifier = GlanceModifier
