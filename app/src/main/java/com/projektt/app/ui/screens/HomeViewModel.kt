@@ -306,6 +306,10 @@ class HomeViewModel @Inject constructor(
                     val notesWithRecurrence = buildNotesWithRecurrence(notes, recurrence)
                     val createdTask = googleTasksService.createTask(listId, title, notesWithRecurrence, dueDate)
 
+                    // Widget SOFORT updaten – vor Animation und loadTasks()
+                    ProjektTWidget.addToCache(createdTask)
+                    ProjektTWidget().updateAll(context)
+
                     // 5 XP für Task-Erstellung
                     val progress = userProgressRepository.getProgressOnce()
                     val (newProgress, _) = progress.addXpWithoutStreak(UserProgress.TASK_CREATE_XP)
@@ -317,9 +321,6 @@ class HomeViewModel @Inject constructor(
                     _uiState.update { it.copy(showCreateXp = false) }
 
                     loadTasks()
-                    // Optimistic insert: Task sofort in Cache schreiben → kein API-Propagation-Delay
-                    ProjektTWidget.addToCache(createdTask)
-                    ProjektTWidget().updateAll(context)
                 } catch (e: Exception) {
                     _uiState.update { it.copy(error = e.message) }
                 }

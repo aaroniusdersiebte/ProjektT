@@ -22,14 +22,6 @@ class CompleteTaskAction : ActionCallback {
         val taskId = parameters[taskIdKey] ?: return
         val taskListId = parameters[taskListIdKey] ?: return
 
-        // 1. SOFORT: Task visuell entfernen (vor jeder DB-Arbeit)
-        ProjektTWidget.removeFromCache(taskId)
-        updateAppWidgetState(context, glanceId) { prefs ->
-            val current = prefs[ProjektTWidget.HIDDEN_TASKS_KEY] ?: emptySet()
-            prefs[ProjektTWidget.HIDDEN_TASKS_KEY] = current + taskId
-        }
-
-        // 2. XP berechnen und speichern
         val entryPoint = EntryPointAccessors.fromApplication(
             context.applicationContext,
             WidgetEntryPoint::class.java
@@ -38,6 +30,7 @@ class CompleteTaskAction : ActionCallback {
         val googleTasksService = entryPoint.googleTasksService()
         val taskSyncPrefs = entryPoint.taskSyncPrefs()
 
+        // 1. XP berechnen (DB-Arbeit vor dem Widget-Update)
         userProgressRepository.checkAndResetDailyStreak()
         val progress = userProgressRepository.getProgressOnce()
         val xpEarned = progress.calculateXpForTask()
@@ -48,13 +41,17 @@ class CompleteTaskAction : ActionCallback {
         userProgressRepository.updateProgress(updatedProgress)
         taskSyncPrefs.addWidgetCompletedTask(taskId, xpEarned)
 
-        // 3. XP/Level in Glance State aktualisieren
+        // 2. Cache aktualisieren + Widget-Update
+        ProjektTWidget.removeFromCache(taskId)
         updateAppWidgetState(context, glanceId) { prefs ->
+            val current = prefs[ProjektTWidget.HIDDEN_TASKS_KEY] ?: emptySet()
+            prefs[ProjektTWidget.HIDDEN_TASKS_KEY] = current + taskId
             prefs[ProjektTWidget.CURRENT_XP_KEY] = updatedProgress.currentXp
             prefs[ProjektTWidget.CURRENT_LEVEL_KEY] = updatedProgress.level
         }
+        ProjektTWidget().update(context, glanceId)  // Expliziter Re-Render nötig
 
-        // 4. API-Call im Hintergrund
+        // 3. API-Call
         if (!googleTasksService.isInitialized()) {
             if (!googleTasksService.initializeForWidget()) return
         }

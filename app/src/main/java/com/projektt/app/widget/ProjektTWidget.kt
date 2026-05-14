@@ -147,10 +147,6 @@ class ProjektTWidget : GlanceAppWidget() {
     private suspend fun loadData(context: Context): WidgetData {
         return withContext(Dispatchers.IO) {
             try {
-                val db = AppDatabase.getInstance(context)
-                val progressEntity = db.userProgressDao().getProgressOnce()
-                val progress = progressEntity?.toDomain() ?: UserProgress()
-
                 val entryPoint = EntryPointAccessors.fromApplication(
                     context.applicationContext,
                     WidgetEntryPoint::class.java
@@ -163,12 +159,16 @@ class ProjektTWidget : GlanceAppWidget() {
                     taskSyncPrefs.clearInvalidateFlag()
                 }
 
-                // Fast-Path: gecachte WidgetData zurückgeben (vor Auth-Check)
+                // Fast-Path: kein DB-Query nötig – XP/Level kommen aus Glance-Prefs
                 getCachedWidgetData()?.let { cached ->
-                    return@withContext cached.copy(progress = progress)
+                    return@withContext cached
                 }
 
-                // Slow-Path: Auth + vollständiger API-Fetch
+                // Slow-Path: DB + Auth + vollständiger API-Fetch
+                val db = AppDatabase.getInstance(context)
+                val progressEntity = db.userProgressDao().getProgressOnce()
+                val progress = progressEntity?.toDomain() ?: UserProgress()
+
                 val googleTasksService = entryPoint.googleTasksService()
                 val widgetSettingsRepo = entryPoint.widgetSettingsRepository()
 
